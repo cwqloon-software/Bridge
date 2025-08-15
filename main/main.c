@@ -44,6 +44,19 @@
 #include "db_serial.h"
 #include "globals.h"
 
+#include "DAP.h"
+
+// TinyUSB 头文件
+#include "tinyusb.h"
+#include "tusb_cdc_acm.h"
+#include "tusb_config.h"
+#include "usb_desc.h"
+#include "msc_disk.h"
+#include "tusb_tasks.h"
+#include "tusb_msc_storage.h"
+
+#include "usb_cdc_handler.h"
+
 #ifdef CONFIG_BT_ENABLED
 
 #include "db_ble.h"
@@ -75,6 +88,43 @@ db_esp_signal_quality_t db_esp_signal_quality = {.air_rssi = UINT8_MAX, .air_noi
 wifi_sta_list_t wifi_sta_list = {.num = 0};
 uint8_t LOCAL_MAC_ADDRESS[6];
 udp_conn_list_t *udp_conn_list;
+
+TaskHandle_t kDAPTaskHandle = NULL;
+
+extern void tcp_server_task(void *pvParameters);
+extern void DAP_Thread(void *pvParameters);
+
+extern uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t *buffer, uint16_t reqlen)
+{
+    return 0;
+}
+
+extern void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t const *buffer, uint16_t bufsize)
+{
+    static uint8_t s_tx_buf[CFG_TUD_HID_EP_BUFSIZE];
+
+    DAP_ProcessCommand(buffer, s_tx_buf);
+    tud_hid_report(0, s_tx_buf, sizeof(s_tx_buf));
+}
+
+// 有线调试配置
+tinyusb_config_t tusb_cfg = {
+    .device_descriptor = NULL,
+    .string_descriptor = NULL,
+    .string_descriptor_count = 0,
+    .external_phy = false,
+    .configuration_descriptor = NULL,
+    .self_powered = false,
+    .vbus_monitor_io = 0};
+
+tinyusb_config_cdcacm_t acm_cfg = {
+    .usb_dev = TINYUSB_USBDEV_0,
+    .cdc_port = TINYUSB_CDC_ACM_0,
+    .rx_unread_buf_sz = 64,
+    .callback_rx = usb_cdc_send_to_uart, // the first way to register a callback
+    .callback_rx_wanted_char = NULL,
+    .callback_line_state_changed = NULL,
+    .callback_line_coding_changed = usb_cdc_set_line_codinig};
 
 // Wi-Fi client mode vars
 static int s_retry_num = 0;
@@ -755,5 +805,20 @@ void app_main() {
         // Disable legacy support for DroneBridge communication module - no use case for DroneBridge for ESP32
         // communication_module();
     }
+
+    bool mount_ret = msc_disk_mount(CONFIG_TINYUSB_MSC_MOUNT_PATH);
+    if (!mount_ret) {
+        ESP_LOGE(TAG, "Failed to mount MSC disk");
+    }
+
+    tusb_cfg.configuration_descriptor = get_configuration_descriptor(mount_ret);
+    tusb_cfg.string_descriptor = get_string_descriptor(mount_ret);
+    tusb_cfg.string_descriptor_count = get_string_descriptor_count();
+    tusb_cfg.device_descriptor = get_device_descriptor();
+    ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
+
+    DAP_Setup();
+    xTaskCreate(DAP_Thread, "DAP_Task", 2048, NULL, 10, &kDAPTaskHandle);
+
     ESP_LOGI(TAG, "app_main finished initial setup");
 }

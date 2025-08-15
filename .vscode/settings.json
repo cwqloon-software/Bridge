@@ -1,0 +1,16 @@
+{
+    "idf.portWin": "COM6",
+    "idf.customExtraVars": {
+        "OPENOCD_SCRIPTS": "C:\\Users\\C0081\\.espressif\\tools\\openocd-esp32\\v0.10.0-esp32-20210401/openocd-esp32/share/openocd/scripts",
+        "IDF_CCACHE_ENABLE": "1",
+        "IDF_TARGET": "esp32s3"
+    },
+    "idf.openOcdConfigs": [
+        "board/esp32s3-builtin.cfg"
+    ],
+    "files.associations": {
+        "elaphurelink_protocol.h": "c",
+        "usbip_server.h": "c"
+    },
+    "idf.flashType": "UART"
+}
